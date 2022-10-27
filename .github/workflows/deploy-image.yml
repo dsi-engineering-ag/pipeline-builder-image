@@ -37,5 +37,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: 1.0.4 # Please change me!!!
           labels: ${{ steps.meta.outputs.labels }}
