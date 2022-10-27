@@ -3,6 +3,8 @@ name: Create and publish a Docker image
 on:
   push:
     branches: ['master']
+    tags:
+      - 'v*'
 
 env:
   REGISTRY: ghcr.io
@@ -37,5 +39,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: 1.0.4 # Please change me!!!
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
