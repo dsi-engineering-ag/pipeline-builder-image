@@ -1,4 +1,4 @@
-FROM maven:3.8.4-eclipse-temurin-17
+FROM maven:3.9.1-eclipse-temurin-17
 
 ENV DEBIAN_FRONTEND noninteractive
 
