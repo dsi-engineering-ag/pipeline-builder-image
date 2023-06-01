@@ -3,5 +3,5 @@ Docker image to build applications with  java, npm and docker-compose
 
 
 # Versioning
-git tag v<X.X.X>
-git push origin <tag>
+    git tag v<X.X.X>
+    git push origin v<X.X.X>
