@@ -33,7 +33,6 @@ RUN gcloud components install kubectl
 ENV USE_GKE_GCLOUD_AUTH_PLUGIN True
 RUN gcloud components install gke-gcloud-auth-plugin
 
-
-RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
+RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash -s 4.5.7
 
 RUN gcloud components update
