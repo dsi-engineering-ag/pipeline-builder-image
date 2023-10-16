@@ -5,8 +5,8 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update
 
 # Install docker-compose
-RUN apt-get install -y python3-pip
-RUN pip3 install --no-cache-dir docker-compose
+
+RUN curl -SL https://github.com/docker/compose/releases/download/v2.22.0/docker-compose-linux-x86_64 -o /bin/docker-compose && chmod +x /bin/docker-compose
 RUN docker-compose -v
 
 # Install cypress dependencies
