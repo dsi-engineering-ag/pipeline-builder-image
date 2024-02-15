@@ -16,6 +16,10 @@ RUN apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-
 # Install gawk
 RUN apt-get install -y gawk
 
+# Install NVM
+RUN apt install curl
+
+RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash 
 
 # Downloading gcloud package
 RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz > /tmp/google-cloud-sdk.tar.gz
