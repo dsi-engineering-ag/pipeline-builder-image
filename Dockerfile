@@ -20,7 +20,7 @@ RUN apt-get install -y gawk
 ARG JMETER_VERSION=5.6.3
 RUN wget https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
 RUN tar -xzf apache-jmeter-$JMETER_VERSION.tgz
-ENV JMETER_HOME $(pwd)/apache-jmeter-$JMETER_VERSION
+ENV JMETER_HOME /apache-jmeter-$JMETER_VERSION
 ENV PATH $PATH:$JMETER_HOME/bin
 
 # Install NVM
