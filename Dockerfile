@@ -15,9 +15,13 @@ RUN apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-
 # Install gawk
 RUN apt-get install -y gawk
 
-# Install jmeter
-RUN apt-get install -y jmeter
 
+# Install jmeter
+ARG JMETER_VERSION=5.6.3
+RUN wget https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+RUN tar -xzf apache-jmeter-$JMETER_VERSION.tgz
+ENV JMETER_HOME $(pwd)/apache-jmeter-$JMETER_VERSION
+ENV PATH $PATH:$JMETER_HOME/bin
 
 # Install NVM
 RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash 
