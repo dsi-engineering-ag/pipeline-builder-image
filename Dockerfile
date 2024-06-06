@@ -1,4 +1,4 @@
-FROM maven:3.9.4-eclipse-temurin-21
+FROM maven:3.9.7-eclipse-temurin-21
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -10,11 +10,14 @@ RUN curl -SL https://github.com/docker/compose/releases/download/v2.22.0/docker-
 RUN docker-compose -v
 
 # Install cypress dependencies
-RUN apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xauth xvfb
-
+RUN apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xauth xvfb 
 
 # Install gawk
 RUN apt-get install -y gawk
+
+# Install jmeter
+RUN apt-get install -y jmeter
+
 
 # Install NVM
 RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash 
