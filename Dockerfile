@@ -15,6 +15,9 @@ RUN apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-
 # Install gawk
 RUN apt-get install -y gawk
 
+# Install zip & unzip
+RUN apt-get install -y zip unzip
+
 
 # Install jmeter
 ARG JMETER_VERSION=5.6.3
