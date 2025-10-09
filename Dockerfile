@@ -10,7 +10,7 @@ RUN curl -SL https://github.com/docker/compose/releases/download/v2.22.0/docker-
 RUN docker-compose -v
 
 # Install cypress dependencies
-RUN apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xauth xvfb 
+RUN apt-get install -y libgtk-3-0t64 libgbm-dev libnotify-dev libnss3 libxss1 libasound2t64 libxtst6 xauth xvfb
 
 # Install gawk
 RUN apt-get install -y gawk
