@@ -18,6 +18,8 @@ RUN apt-get install -y gawk
 # Install zip & unzip
 RUN apt-get install -y zip unzip
 
+# Install wget
+RUN apt-get install -y wget
 
 # Install jmeter
 ARG JMETER_VERSION=5.6.3
