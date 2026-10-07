@@ -12,8 +12,8 @@ RUN apt-get update
 RUN apt-get install -y trivy
 
 # Download the Trivy HTML template
-RUN mkdir -p /contrib && \
-    wget -O /contrib/html.tpl https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+RUN mkdir -p /contrib
+RUN wget -O /contrib/html.tpl https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl
 
 # Install docker-compose
 
