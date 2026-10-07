@@ -11,6 +11,10 @@ RUN echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.git
 RUN apt-get update
 RUN apt-get install -y trivy
 
+# Download the Trivy HTML template
+RUN mkdir -p /contrib && \
+    wget -O /contrib/html.tpl https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+
 # Install docker-compose
 
 RUN curl -SL https://github.com/docker/compose/releases/download/v2.22.0/docker-compose-linux-x86_64 -o /bin/docker-compose && chmod +x /bin/docker-compose
