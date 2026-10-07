@@ -4,6 +4,13 @@ ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update
 
+# Install trivy
+RUN apt-get install -y wget gnupg
+RUN wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | tee /usr/share/keyrings/trivy.gpg > /dev/null
+RUN echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | tee -a /etc/apt/sources.list.d/trivy.list
+RUN apt-get update
+RUN apt-get install -y trivy
+
 # Install docker-compose
 
 RUN curl -SL https://github.com/docker/compose/releases/download/v2.22.0/docker-compose-linux-x86_64 -o /bin/docker-compose && chmod +x /bin/docker-compose
@@ -17,9 +24,6 @@ RUN apt-get install -y gawk
 
 # Install zip & unzip
 RUN apt-get install -y zip unzip
-
-# Install wget
-RUN apt-get install -y wget
 
 # Install jmeter
 ARG JMETER_VERSION=5.6.3
