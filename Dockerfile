@@ -36,8 +36,13 @@ RUN tar -xzf apache-jmeter-$JMETER_VERSION.tgz
 ENV JMETER_HOME /apache-jmeter-$JMETER_VERSION
 ENV PATH $PATH:$JMETER_HOME/bin
 
-# Install NVM
-RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash 
+# Install Node.js
+RUN apt-get install -y nodejs npm
+
+# Install dtrack
+COPY --chmod=755 dependency-track.mjs /usr/local/bin/dependency-track.mjs
+RUN ln -s /usr/local/bin/dependency-track.mjs /usr/local/bin/dtrack \
+  && echo 'alias dtrack="node /usr/local/bin/dependency-track.mjs"' >> /etc/bash.bashrc
 
 # Downloading gcloud package
 RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz > /tmp/google-cloud-sdk.tar.gz
