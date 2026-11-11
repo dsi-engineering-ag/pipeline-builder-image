@@ -133,6 +133,11 @@ async function uploadCommand() {
       bom: base64Bom,
     });
 
+    const childUuid = uploadRes?.projectUuid || (await lookupProject(projectName, version)).uuid;
+    await sendJson("PATCH", `/api/v1/project/${childUuid}`, {
+      parent: { uuid: parentUuid },
+    });
+
     await waitForBomProcessing(uploadRes?.token, projectName);
   }
 
@@ -161,8 +166,8 @@ async function tagCommand() {
     if (targetNames.has(proj.name) && proj.version !== version) {
       console.log(`Untagging '${tag}' from ${proj.name} (${proj.version})...`);
       const fullOldProj = await sendJson("GET", `/api/v1/project/${proj.uuid}`);
-      fullOldProj.tags = (fullOldProj.tags || []).filter((t) => t.name !== tag);
-      await sendJson("POST", "/api/v1/project", fullOldProj);
+      const tags = (fullOldProj.tags || []).filter((t) => t.name !== tag);
+      await sendJson("PATCH", `/api/v1/project/${proj.uuid}`, { tags });
     }
   }
 
@@ -171,9 +176,10 @@ async function tagCommand() {
     const proj = await lookupProject(projName, version);
     const existingTags = proj.tags || [];
     if (!existingTags.some((t) => t.name === tag)) {
-      proj.tags = [...existingTags, { name: tag }];
+      await sendJson("PATCH", `/api/v1/project/${proj.uuid}`, {
+        tags: [...existingTags, { name: tag }],
+      });
     }
-    await sendJson("POST", "/api/v1/project", proj);
   }
 
   console.log(`Tag '${tag}' applied to version ${version}.`);
