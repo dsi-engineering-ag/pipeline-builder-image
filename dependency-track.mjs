@@ -76,6 +76,9 @@ async function lookupProject(name, version, allowNotFound = false) {
 async function ensureParentProject(parentName, version) {
   const existing = await lookupProject(parentName, version, true);
   if (existing) {
+    if (!existing.active) {
+      await sendJson("PATCH", `/api/v1/project/${existing.uuid}`, { active: true });
+    }
     return existing.uuid;
   }
   console.log(`Creating parent project ${parentName} (${version})...`);
@@ -135,6 +138,7 @@ async function uploadCommand() {
 
     const childUuid = uploadRes?.projectUuid || (await lookupProject(projectName, version)).uuid;
     await sendJson("PATCH", `/api/v1/project/${childUuid}`, {
+      active: true,
       parent: { uuid: parentUuid },
     });
 
@@ -175,10 +179,43 @@ async function tagCommand() {
     console.log(`Tagging ${projName} (${version}) with '${tag}'...`);
     const proj = await lookupProject(projName, version);
     const existingTags = proj.tags || [];
-    if (!existingTags.some((t) => t.name === tag)) {
+    const hasTag = existingTags.some((t) => t.name === tag);
+    if (!hasTag || !proj.active) {
       await sendJson("PATCH", `/api/v1/project/${proj.uuid}`, {
-        tags: [...existingTags, { name: tag }],
+        active: true,
+        tags: hasTag ? existingTags : [...existingTags, { name: tag }],
       });
+    }
+  }
+
+  if (parent) {
+    const parentVersions =
+      (await sendJson(
+        "GET",
+        `/api/v1/project?name=${encodeURIComponent(parent)}&excludeInactive=true&pageSize=1000&pageNumber=1`
+      )) || [];
+
+    for (const parentProj of parentVersions) {
+      const children =
+        (await sendJson(
+          "GET",
+          `/api/v1/project/${parentProj.uuid}/children?excludeInactive=true&pageSize=1000&pageNumber=1`
+        )) || [];
+
+      let hasActiveChildren = false;
+      for (const child of children) {
+        if (!child.tags?.length) {
+          console.log(`Deactivating untagged project ${child.name} (${child.version})...`);
+          await sendJson("PATCH", `/api/v1/project/${child.uuid}`, { active: false });
+        } else {
+          hasActiveChildren = true;
+        }
+      }
+
+      if (!parentProj.tags?.length && !hasActiveChildren) {
+        console.log(`Deactivating untagged project ${parentProj.name} (${parentProj.version})...`);
+        await sendJson("PATCH", `/api/v1/project/${parentProj.uuid}`, { active: false });
+      }
     }
   }
 
