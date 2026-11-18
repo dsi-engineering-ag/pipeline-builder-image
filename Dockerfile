@@ -39,6 +39,16 @@ ENV PATH $PATH:$JMETER_HOME/bin
 # Install Node.js
 RUN apt-get install -y nodejs npm
 
+# Install cosign & cyclonedx-cli
+ARG COSIGN_VERSION=3.1.4
+RUN curl -sSfL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64 -o /usr/local/bin/cosign \
+  && chmod +x /usr/local/bin/cosign \
+  && cosign version
+ARG CYCLONEDX_VERSION=0.33.1
+RUN curl -sSfL https://github.com/CycloneDX/cyclonedx-cli/releases/download/v${CYCLONEDX_VERSION}/cyclonedx-linux-x64 -o /usr/local/bin/cyclonedx \
+  && chmod +x /usr/local/bin/cyclonedx \
+  && cyclonedx --version
+
 # Install dtrack
 COPY --chmod=755 dependency-track.mjs /usr/local/bin/dependency-track.mjs
 RUN ln -s /usr/local/bin/dependency-track.mjs /usr/local/bin/dtrack \

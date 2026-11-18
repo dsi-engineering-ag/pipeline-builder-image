@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { parseArgs } from "node:util";
 
@@ -18,6 +19,7 @@ const { values, positionals } = parseArgs({
     version: { type: "string" },
     tag: { type: "string" },
     sbom: { type: "string", multiple: true },
+    "oci-sbom": { type: "string", multiple: true },
     project: { type: "string", multiple: true },
   },
 });
@@ -27,7 +29,7 @@ const command = positionals[0];
 function usage() {
   console.error(
     `Usage:
-  node scripts/dependency-track.mjs upload --parent <parent> --version <version> --sbom <name>=<path> [...]
+  node scripts/dependency-track.mjs upload --parent <parent> --version <version> [--sbom <name>=<path> ...] [--oci-sbom <name>=<image> ...]
   node scripts/dependency-track.mjs tag --parent <parent> --tag <tag> --version <version> [--project <name> ...]
   node scripts/dependency-track.mjs analyze [--parent <parent>] --version <version> --project <name> [...]`
   );
@@ -105,44 +107,105 @@ async function waitForBomProcessing(token, projectName) {
   console.warn(`Warning: Timed out waiting for BOM processing on ${projectName}.`);
 }
 
+function parseEntry(flag, entry) {
+  const eqIdx = entry.indexOf("=");
+  if (eqIdx <= 0) {
+    throw new Error(`Invalid ${flag} argument '${entry}', expected <name>=<value>`);
+  }
+  return [entry.slice(0, eqIdx), entry.slice(eqIdx + 1)];
+}
+
+export function toCycloneDxIfSpdx(rawBom) {
+  let doc;
+  try {
+    doc = JSON.parse(rawBom);
+  } catch {
+    return rawBom;
+  }
+  if (!doc?.spdxVersion) {
+    return rawBom;
+  }
+
+  const isHermeto = (pkg) =>
+    (pkg.annotations || []).some((a) => JSON.stringify(a).toLowerCase().includes("hermeto"));
+  const removedIds = new Set();
+
+  if (Array.isArray(doc.packages)) {
+    doc.packages = doc.packages.filter((pkg) => {
+      if (isHermeto(pkg)) {
+        removedIds.add(pkg.SPDXID);
+        return false;
+      }
+      return true;
+    });
+  }
+  if (Array.isArray(doc.relationships)) {
+    doc.relationships = doc.relationships.filter(
+      (r) => !removedIds.has(r.spdxElementId) && !removedIds.has(r.relatedSpdxElement)
+    );
+  }
+  if (Array.isArray(doc.documentDescribes)) {
+    doc.documentDescribes = doc.documentDescribes.filter((id) => !removedIds.has(id));
+  }
+
+  console.log(`Converting SPDX (${doc.spdxVersion}, removed ${removedIds.size} Hermeto package(s)) to CycloneDX v1.5...`);
+  return execFileSync(
+    "cyclonedx",
+    ["convert", "--input-format", "spdxjson", "--output-format", "json", "--output-version", "v1_5"],
+    { input: JSON.stringify(doc), encoding: "utf8", maxBuffer: 50 * 1024 * 1024 }
+  );
+}
+
+export function downloadOciSbom(image) {
+  console.log(`Downloading linux/amd64 OCI SBOM for ${image}...`);
+  return execFileSync("cosign", ["download", "sbom", "--platform", "linux/amd64", image], {
+    encoding: "utf8",
+    maxBuffer: 50 * 1024 * 1024,
+  });
+}
+
+async function uploadBom(parent, parentUuid, version, rawName, rawBom) {
+  const projectName = qualifyName(parent, rawName);
+  const bomContent = toCycloneDxIfSpdx(rawBom);
+
+  console.log(`Uploading BOM for ${projectName} (${version}) under ${parent} (${version})...`);
+  const base64Bom = Buffer.from(bomContent).toString("base64");
+  const uploadRes = await sendJson("PUT", "/api/v1/bom", {
+    autoCreate: true,
+    parentUUID: parentUuid,
+    projectName,
+    projectVersion: version,
+    bom: base64Bom,
+  });
+
+  const childUuid = uploadRes?.projectUuid || (await lookupProject(projectName, version)).uuid;
+  await sendJson("PATCH", `/api/v1/project/${childUuid}`, {
+    active: true,
+    parent: { uuid: parentUuid },
+  });
+
+  await waitForBomProcessing(uploadRes?.token, projectName);
+}
+
 async function uploadCommand() {
-  const { parent, version, sbom } = values;
-  if (!parent || !version || !sbom?.length) {
+  const { parent, version, sbom = [], "oci-sbom": ociSbom = [] } = values;
+  if (!parent || !version || (!sbom.length && !ociSbom.length)) {
     usage();
   }
 
   const parentUuid = await ensureParentProject(parent, version);
 
   for (const entry of sbom) {
-    const eqIdx = entry.indexOf("=");
-    if (eqIdx <= 0) {
-      throw new Error(`Invalid --sbom argument '${entry}', expected <name>=<path>`);
-    }
-    const rawName = entry.slice(0, eqIdx);
-    const bomPath = entry.slice(eqIdx + 1);
-    const projectName = qualifyName(parent, rawName);
-
+    const [rawName, bomPath] = parseEntry("--sbom", entry);
     if (!fs.existsSync(bomPath) || !fs.statSync(bomPath).isFile()) {
       throw new Error(`BOM file not found: ${bomPath}`);
     }
+    await uploadBom(parent, parentUuid, version, rawName, fs.readFileSync(bomPath, "utf8"));
+  }
 
-    console.log(`Uploading BOM for ${projectName} (${version}) under ${parent} (${version})...`);
-    const base64Bom = fs.readFileSync(bomPath).toString("base64");
-    const uploadRes = await sendJson("PUT", "/api/v1/bom", {
-      autoCreate: true,
-      parentUUID: parentUuid,
-      projectName,
-      projectVersion: version,
-      bom: base64Bom,
-    });
-
-    const childUuid = uploadRes?.projectUuid || (await lookupProject(projectName, version)).uuid;
-    await sendJson("PATCH", `/api/v1/project/${childUuid}`, {
-      active: true,
-      parent: { uuid: parentUuid },
-    });
-
-    await waitForBomProcessing(uploadRes?.token, projectName);
+  for (const entry of ociSbom) {
+    const [rawName, image] = parseEntry("--oci-sbom", entry);
+    await uploadBom(parent, parentUuid, version, rawName, downloadOciSbom(image));
   }
 
   console.log(`All BOMs uploaded and processed for version ${version}.`);
