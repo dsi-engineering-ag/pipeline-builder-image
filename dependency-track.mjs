@@ -12,12 +12,13 @@ if (!apiKey || !apiKey.trim()) {
 
 const dtrackUrl = (process.env.DEPENDENCY_TRACK_URL?.trim() || "https://dtrack.dsiag.ch").replace(/\/+$/, "");
 
+const VALID_ENVS = new Set(["preview", "prod"]);
+
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     parent: { type: "string" },
-    version: { type: "string" },
-    tag: { type: "string" },
+    env: { type: "string" },
     sbom: { type: "string", multiple: true },
     "oci-sbom": { type: "string", multiple: true },
     project: { type: "string", multiple: true },
@@ -29,9 +30,8 @@ const command = positionals[0];
 function usage() {
   console.error(
     `Usage:
-  node scripts/dependency-track.mjs upload --parent <parent> --version <version> [--sbom <name>=<path> ...] [--oci-sbom <name>=<image> ...]
-  node scripts/dependency-track.mjs tag --parent <parent> --tag <tag> --version <version> [--project <name> ...]
-  node scripts/dependency-track.mjs analyze [--parent <parent>] --version <version> --project <name> [...]`
+  dtrack upload --parent <parent> --env <preview|prod> [--sbom <name>=<path> ...] [--oci-sbom <name>=<image> ...]
+  dtrack analyze [--parent <parent>] --env <preview|prod> --project <name> [...]`
   );
   process.exit(1);
 }
@@ -75,18 +75,18 @@ async function lookupProject(name, version, allowNotFound = false) {
   return JSON.parse(text);
 }
 
-async function ensureParentProject(parentName, version) {
-  const existing = await lookupProject(parentName, version, true);
+async function ensureParentProject(parentName, env) {
+  const existing = await lookupProject(parentName, env, true);
   if (existing) {
     if (!existing.active) {
       await sendJson("PATCH", `/api/v1/project/${existing.uuid}`, { active: true });
     }
     return existing.uuid;
   }
-  console.log(`Creating parent project ${parentName} (${version})...`);
+  console.log(`Creating parent project ${parentName} (${env})...`);
   const created = await sendJson("PUT", "/api/v1/project", {
     name: parentName,
-    version,
+    version: env,
     classifier: "APPLICATION",
     collectionLogic: "AGGREGATE_DIRECT_CHILDREN",
     active: true,
@@ -164,21 +164,21 @@ export function downloadOciSbom(image) {
   });
 }
 
-async function uploadBom(parent, parentUuid, version, rawName, rawBom) {
+async function uploadBom(parent, parentUuid, env, rawName, rawBom) {
   const projectName = qualifyName(parent, rawName);
   const bomContent = toCycloneDxIfSpdx(rawBom);
 
-  console.log(`Uploading BOM for ${projectName} (${version}) under ${parent} (${version})...`);
+  console.log(`Uploading BOM for ${projectName} (${env}) under ${parent} (${env})...`);
   const base64Bom = Buffer.from(bomContent).toString("base64");
   const uploadRes = await sendJson("PUT", "/api/v1/bom", {
     autoCreate: true,
     parentUUID: parentUuid,
     projectName,
-    projectVersion: version,
+    projectVersion: env,
     bom: base64Bom,
   });
 
-  const childUuid = uploadRes?.projectUuid || (await lookupProject(projectName, version)).uuid;
+  const childUuid = uploadRes?.projectUuid || (await lookupProject(projectName, env)).uuid;
   await sendJson("PATCH", `/api/v1/project/${childUuid}`, {
     active: true,
     parent: { uuid: parentUuid },
@@ -188,106 +188,32 @@ async function uploadBom(parent, parentUuid, version, rawName, rawBom) {
 }
 
 async function uploadCommand() {
-  const { parent, version, sbom = [], "oci-sbom": ociSbom = [] } = values;
-  if (!parent || !version || (!sbom.length && !ociSbom.length)) {
+  const { parent, env, sbom = [], "oci-sbom": ociSbom = [] } = values;
+  if (!parent || !VALID_ENVS.has(env) || (!sbom.length && !ociSbom.length)) {
     usage();
   }
 
-  const parentUuid = await ensureParentProject(parent, version);
+  const parentUuid = await ensureParentProject(parent, env);
 
   for (const entry of sbom) {
     const [rawName, bomPath] = parseEntry("--sbom", entry);
     if (!fs.existsSync(bomPath) || !fs.statSync(bomPath).isFile()) {
       throw new Error(`BOM file not found: ${bomPath}`);
     }
-    await uploadBom(parent, parentUuid, version, rawName, fs.readFileSync(bomPath, "utf8"));
+    await uploadBom(parent, parentUuid, env, rawName, fs.readFileSync(bomPath, "utf8"));
   }
 
   for (const entry of ociSbom) {
     const [rawName, image] = parseEntry("--oci-sbom", entry);
-    await uploadBom(parent, parentUuid, version, rawName, downloadOciSbom(image));
+    await uploadBom(parent, parentUuid, env, rawName, downloadOciSbom(image));
   }
 
-  console.log(`All BOMs uploaded and processed for version ${version}.`);
-}
-
-async function tagCommand() {
-  const { parent, tag, version, project = [] } = values;
-  if (!tag || !version || (!parent && !project.length)) {
-    usage();
-  }
-
-  const targetNames = new Set();
-  if (parent) {
-    targetNames.add(parent);
-  }
-  for (const p of project) {
-    targetNames.add(qualifyName(parent, p));
-  }
-
-  console.log(`Removing tag '${tag}' from older versions...`);
-  const resp = await request("GET", `/api/v1/project/tag/${encodeURIComponent(tag)}?pageSize=1000&pageNumber=1`);
-  const taggedProjects = resp.ok ? await resp.json() : [];
-
-  for (const proj of taggedProjects) {
-    if (targetNames.has(proj.name) && proj.version !== version) {
-      console.log(`Untagging '${tag}' from ${proj.name} (${proj.version})...`);
-      const fullOldProj = await sendJson("GET", `/api/v1/project/${proj.uuid}`);
-      const tags = (fullOldProj.tags || []).filter((t) => t.name !== tag);
-      await sendJson("PATCH", `/api/v1/project/${proj.uuid}`, { tags });
-    }
-  }
-
-  for (const projName of targetNames) {
-    console.log(`Tagging ${projName} (${version}) with '${tag}'...`);
-    const proj = await lookupProject(projName, version);
-    const existingTags = proj.tags || [];
-    const hasTag = existingTags.some((t) => t.name === tag);
-    if (!hasTag || !proj.active) {
-      await sendJson("PATCH", `/api/v1/project/${proj.uuid}`, {
-        active: true,
-        tags: hasTag ? existingTags : [...existingTags, { name: tag }],
-      });
-    }
-  }
-
-  if (parent) {
-    const parentVersions =
-      (await sendJson(
-        "GET",
-        `/api/v1/project?name=${encodeURIComponent(parent)}&excludeInactive=true&pageSize=1000&pageNumber=1`
-      )) || [];
-
-    for (const parentProj of parentVersions) {
-      const children =
-        (await sendJson(
-          "GET",
-          `/api/v1/project/${parentProj.uuid}/children?excludeInactive=true&pageSize=1000&pageNumber=1`
-        )) || [];
-
-      let hasActiveChildren = false;
-      for (const child of children) {
-        if (!child.tags?.length) {
-          console.log(`Deactivating untagged project ${child.name} (${child.version})...`);
-          await sendJson("PATCH", `/api/v1/project/${child.uuid}`, { active: false });
-        } else {
-          hasActiveChildren = true;
-        }
-      }
-
-      if (!parentProj.tags?.length && !hasActiveChildren) {
-        console.log(`Deactivating untagged project ${parentProj.name} (${parentProj.version})...`);
-        await sendJson("PATCH", `/api/v1/project/${parentProj.uuid}`, { active: false });
-      }
-    }
-  }
-
-  console.log(`Tag '${tag}' applied to version ${version}.`);
+  console.log(`All BOMs uploaded and processed for environment ${env}.`);
 }
 
 async function analyzeCommand() {
-  const { parent, version, project } = values;
-  if (!version || !project?.length) {
+  const { parent, env, project } = values;
+  if (!VALID_ENVS.has(env) || !project?.length) {
     usage();
   }
 
@@ -295,7 +221,7 @@ async function analyzeCommand() {
 
   for (const rawName of project) {
     const projectName = qualifyName(parent, rawName);
-    const proj = await lookupProject(projectName, version);
+    const proj = await lookupProject(projectName, env);
     const violations = (await sendJson("GET", `/api/v1/violation/project/${proj.uuid}?suppressed=false`)) || [];
 
     const failed = violations.filter((v) => v.policyCondition?.policy?.violationState === "FAIL");
@@ -304,7 +230,7 @@ async function analyzeCommand() {
 
     if (failed.length > 0) {
       hasFailures = true;
-      console.error(`\n[FAIL] ${projectName} (${version}): ${failed.length} failed policy violation(s) (${warns.length} warning(s))`);
+      console.error(`\n[FAIL] ${projectName} (${env}): ${failed.length} failed policy violation(s) (${warns.length} warning(s))`);
       console.error(`  UI: ${uiLink}`);
       for (const v of failed) {
         const policyName = v.policyCondition?.policy?.name || "Unknown Policy";
@@ -313,7 +239,7 @@ async function analyzeCommand() {
         console.error(`  - [${v.type}] ${policyName}: ${comp} (${cond})`);
       }
     } else {
-      console.log(`[PASS] ${projectName} (${version}): 0 failed violations (${warns.length} warning(s)) -> ${uiLink}`);
+      console.log(`[PASS] ${projectName} (${env}): 0 failed violations (${warns.length} warning(s)) -> ${uiLink}`);
     }
   }
 
@@ -326,9 +252,6 @@ try {
   switch (command) {
     case "upload":
       await uploadCommand();
-      break;
-    case "tag":
-      await tagCommand();
       break;
     case "analyze":
       await analyzeCommand();
